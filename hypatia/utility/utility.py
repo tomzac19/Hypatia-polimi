@@ -213,16 +213,21 @@ def invcosts_annuity(
     and economic lifetime of each technology
     """
 
-    depreciation = np.divide(
-        np.multiply(
-            np.power((interest_rate.values + 1), economiclife.values),
-            interest_rate.values,
-        ),
-        (np.power((interest_rate.values + 1), economiclife.values) - 1),
-    )
     depreciation = pd.DataFrame(
-        depreciation, index=["Depreciation_rate"], columns=technologies
+        0, index=["Depreciation_rate"], columns=technologies
     )
+    for tech in technologies:
+        if interest_rate[tech].values > 0:
+            # Tech Capital Recovery Factor (CRF) for interest rate
+            depreciation.loc["Depreciation_rate", tech] = (
+                interest_rate[tech].values
+                * (1.0 + interest_rate[tech].values) ** economiclife[tech].values
+            ) / (
+                (1.0 + interest_rate[tech].values) ** economiclife[tech].values - 1.0
+            )
+        else:
+            # Tech Capital Recovery Factor (CRF) for interest rate = 0
+            depreciation.loc["Depreciation_rate", tech] = 1.0 / economiclife[tech].values
 
     inv_fvalue_total = 0
     for tech_indx, tech in enumerate(technologies):
@@ -351,7 +356,7 @@ def line_varcost(
     return variablecost_line
 
 def salvage_factor(
-    main_years, technologies, tlft, interest_rate, discount_rate, economiclife
+    main_years, technologies, toc, tlft, interest_rate, discount_rate, economiclife
 ):
 
     """
@@ -360,41 +365,58 @@ def salvage_factor(
     effect
     """
 
-    salvage_factor_0 = pd.DataFrame(0, index=main_years, columns=technologies)
+    # Salvage Value Factor actualized at the beginning of the horizon (BOH)
+    salvage_factor_BOH = pd.DataFrame(0, index=main_years, columns=technologies)
 
-    rates_factor = pd.DataFrame(0, index=main_years, columns=technologies)
+    # Correction factors to be applied to the salvage value factor
+    correction_factor = pd.DataFrame(0, index=main_years, columns=technologies)
 
+    # End of the horizon (EOH) is the last year of the model horizon
     EOH = len(main_years) - 1
-
+    
     for tech in technologies:
 
-        technical_factor = (1 - 1 / (1 + interest_rate[tech].values)) / (
-            1 - 1 / ((1 + interest_rate[tech].values) ** economiclife[tech].values)
-        )
-
-        social_factor = (
-            1 - 1 / ((1 + discount_rate.values) ** economiclife[tech].values)
-        ) / (1 - 1 / (1 + discount_rate.values))
-
-        rates_factor.loc[:, tech] = technical_factor * social_factor
-
+        # Tech Capital Recovery Factor (CRF) for interest rate
+        if interest_rate[tech].values > 0:
+            CRF_i = (interest_rate[tech].values * (1.0 + interest_rate[tech].values) ** economiclife[tech].values) / (
+                (1.0 + interest_rate[tech].values) ** economiclife[tech].values - 1.0
+            ) # shape = (1,1)
+        else:
+            CRF_i = 1.0 / economiclife[tech].values
+            
         for indx, year in enumerate(main_years):
+            # Tech Capital Recovery Factor (CRF) for discount rate
+            if discount_rate.loc[year,:].values > 0:
+                CRF_d = (discount_rate.loc[year,:].values * (1.0 + discount_rate.loc[year,:].values) ** economiclife[tech].values) / (
+                    (1.0 + discount_rate.loc[year,:].values) ** economiclife[tech].values - 1.0
+                ) # shape = (1, 1)
+            else:
+                CRF_d = 1 / economiclife[tech].values
 
-            if indx + tlft[tech].values > EOH:
-
-                salvage_factor_0.loc[year, tech] = (
-                    (1 + discount_rate.loc[year, :].values)
-                    ** (tlft[tech].values - EOH - 1 + indx)
-                    - 1
-                ) / ((1 + discount_rate.loc[year, :].values) ** tlft[tech].values - 1)
-
-    salvage_factor_mod = pd.DataFrame(
-        salvage_factor_0.values * rates_factor.values,
+            correction_factor.loc[year, tech] = CRF_i / CRF_d # shape = (years, 1)
+            
+            # Tech Salvage Factor at the end of the horizon (EOH)
+            tech_remaining_years = (indx + toc[tech].values) + (tlft[tech].values - 1) - EOH
+            
+            if tech_remaining_years > 0:
+                if discount_rate.loc[year,:].values > 0: 
+                    salvage_factor_BOH.loc[year, tech] = (
+                        ((1.0 + discount_rate.loc[year, :].values) ** (tech_remaining_years) - 1.0) / 
+                        ((1.0 + discount_rate.loc[year, :].values) ** tlft[tech].values - 1.0)
+                        ) / (1.0 + discount_rate.loc[year, :].values) ** (indx + toc[tech].values)  # shape = (years, 1)
+                else:
+                    salvage_factor_BOH.loc[year, tech] = (
+                        (tech_remaining_years / tlft[tech].values) / 
+                        (1.0 + discount_rate.loc[year, :].values) ** (indx + toc[tech].values)
+                        )
+                    
+    salvage_factor = pd.DataFrame(
+        salvage_factor_BOH.values * correction_factor.values,
         index=main_years,
         columns=technologies,
     )
 
-    return salvage_factor_mod
+    return salvage_factor
 
 def storage_state_of_charge(initial_storage, flow_in, flow_out, main_years, time_steps,charge_efficiency,discharge_efficiency):
     

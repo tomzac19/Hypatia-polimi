@@ -545,12 +545,13 @@ class BuildModel:
 
         self.totalcost_allregions = np.zeros((len(self.model_data.settings.years), 1))
         self.inv_allregions = 0
+        self.salvage_allregions = 0
         years = -1 * np.arange(len(self.model_data.settings.years))
 
         for reg in self.model_data.settings.regions:
 
             totalcost_regional = np.zeros((len(self.model_data.settings.years), 1))
-
+            
             for ctgry in self.model_data.settings.technologies[reg].keys():
 
                 if ctgry != "Demand":
@@ -562,11 +563,10 @@ class BuildModel:
                         + self.vars.cost_fix_tax[reg][ctgry]
                         - self.vars.cost_fix_sub[reg][ctgry]
                         + self.vars.cost_variable[reg][ctgry]
-                        + self.vars.cost_decom[reg][ctgry]
-                        - self.vars.salvage_inv[reg][ctgry],
+                        + self.vars.cost_decom[reg][ctgry],
                         axis=1,
                     )
-
+                    self.salvage_allregions += cp.sum(self.vars.salvage_inv[reg][ctgry])
                     self.inv_allregions += self.vars.cost_inv_fvalue[reg][ctgry]
 
                     if ctgry != "Transmission" and ctgry != "Storage":
@@ -579,7 +579,7 @@ class BuildModel:
                 totalcost_regional += cp.sum(self.vars.cost_unmet_demand[reg][carr],axis=1)                
 
             discount_factor = (
-                1 + self.model_data.regional_parameters[reg]["discount_rate"]["Annual Discount Rate"].values
+                1.0 + self.model_data.regional_parameters[reg]["discount_rate"]["Annual Discount Rate"].values
             )
 
             totalcost_regional_discounted = cp.multiply(
@@ -709,7 +709,7 @@ class BuildModel:
         """
         if self.model_data.settings.mode == ModelMode.Planning:
             self.global_objective = (
-                cp.sum(self.totalcost_allregions) + self.inv_allregions
+                cp.sum(self.totalcost_allregions) + self.inv_allregions - self.salvage_allregions
             )
 
         elif self.model_data.settings.mode == ModelMode.Operation:

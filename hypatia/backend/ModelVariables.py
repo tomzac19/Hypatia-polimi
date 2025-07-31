@@ -491,6 +491,7 @@ class ModelVariables():
                     salvage_factor(
                         self.model_data.settings.years,
                         self.model_data.settings.technologies[reg][key],
+                        self.model_data.regional_parameters[reg]["time_of_construction"].loc[:, key],
                         self.model_data.regional_parameters[reg]["tech_lifetime"].loc[:, key],
                         self.model_data.regional_parameters[reg]["interest_rate"].loc[:, key],
                         self.model_data.regional_parameters[reg]["discount_rate"],
@@ -1157,7 +1158,7 @@ class ModelVariables():
                 totalcost_regional += cp.sum(self.cost_unmet_demand[reg][carr],axis=1)
 
             discount_factor = (
-                1 + self.model_data.regional_parameters[reg]["discount_rate"]["Annual Discount Rate"].values
+                1.0 + self.model_data.regional_parameters[reg]["discount_rate"]["Annual Discount Rate"].values
             )
 
             totalcost_regional_discounted = cp.multiply(
